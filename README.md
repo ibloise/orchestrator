@@ -1,4 +1,4 @@
-# Homeserver Orchestrator — Manual Execution MVP
+# Homeserver Orchestrator — Multiproject Scheduler MVP
 
 A deterministic, auditable Python/SQLite control plane for supervised multi-project development.
 The domain core is defined by [SPEC-001](specs/SPEC-001.md); repository rules are in [AGENTS.md](AGENTS.md).
@@ -6,6 +6,10 @@ The domain core is defined by [SPEC-001](specs/SPEC-001.md); repository rules ar
 [SPEC-002 — Secure Codex Execution and Workspace Lifecycle](specs/SPEC-002.md)
 is approved for implementation. Its offline execution workflow is implemented; **live Codex
 execution remains disabled** pending a provider authentication/network boundary and AT-12.
+
+[SPEC-003 — Multiproject Scheduler and Execution Continuity](specs/SPEC-003.md)
+is approved for implementation. Its deterministic Scheduler and checkpoints are implemented
+for **FakeAdapter only**, with a read-only dry-run. The live gate remains closed.
 
 ## What works
 - Python package with administrative CLI.
@@ -18,12 +22,14 @@ execution remains disabled** pending a provider authentication/network boundary 
 - Manual, authorized FakeAdapter execution in a real Linux Landlock/seccomp sandbox.
 - Trusted task worktrees, isolated staging, bounded process supervision, cancellation and restart reconciliation.
 - Durable execution records, checksummed requests, logs and Git evidence outside SQLite.
+- Persistent weighted project fairness, atomic capacity claims, dispatch holds and versioned continuity checkpoints.
+- Foreground Scheduler service, single-cycle diagnostics, scoped pause/resume and explicit cross-model retry.
 - Automated tests.
 
 ## Not implemented yet
 **The live Codex adapter is gated off.** Its command assembly and local capability diagnostics
 are available, but `run` refuses every Codex profile. There is no supported switch to bypass
-this gate. The Scheduler, automated verification and Git integration remain future work.
+this gate. Automated verification and Git integration remain future work.
 Do not expose the database or executor privileges to LLM processes.
 
 ## Setup
@@ -140,7 +146,7 @@ include `NO_APPROVAL`, `NO_AUTHORIZATION`, `REVOKED`, `TASK_NOT_IN_EFFECTIVE_PLA
 `PROJECT_PAUSED`, `PROJECT_INACTIVE`, `OBJECTIVE_INACTIVE`, `TASK_NOT_PENDING`,
 `DEPENDENCY_PENDING`, `DEPENDENCY_NOT_IN_EFFECTIVE_PLAN`, `DEPENDENCY_INVALID`, `DEPENDENCY_MISSING`,
 and `OPEN_DECISION`. A result may contain multiple reasons. This interface is intended for
-the future Scheduler; no background worker or external API is implemented.
+the Scheduler; no external API is implemented.
 
 ## SPEC-002 configuration and manual execution
 
@@ -201,7 +207,7 @@ errors and 130 for an operator interrupt. Errors identify the execution when one
 compares staged contents and refuses promotion if that role modified files. Role templates
 and the complete effective request are recorded, with a SHA-256 checksum. Additional context
 references remain task data; there is no dynamic input-file retrieval. Effective instructions
-are limited to 4096 UTF-8 bytes in this increment.
+are limited to 16384 UTF-8 bytes, including any labeled continuity context.
 
 ### Worktrees, evidence and recovery
 
@@ -294,8 +300,145 @@ verified model mapping, request checksum, provider logs and changed files; confi
 status remains pending. AT-12 has **not** been run. SPEC-002 is not accepted for production
 agent execution while these blockers remain; the ordinary offline tests need no credentials.
 
+## SPEC-003 scheduling and continuity
+
+Run `orchestrator init` to apply migration 3 without resetting data. Configure the optional
+`[scheduler]` section in `config.example.toml`; defaults are two global slots, two per project,
+a two-second poll, a 15-second owner lease and a 30-second launch claim. Lease duration must
+be at least twice the polling interval. Concurrency values are integers from 1 to 32. Limits
+can also be supplied to `scheduler run` or `scheduler tick` with `--global-concurrency` and
+`--per-project-concurrency`. Startup refuses reductions below current active usage.
+
+```bash
+orchestrator scheduler tick --dry-run
+orchestrator scheduler tick
+orchestrator scheduler status
+orchestrator scheduler run
+# In a separate terminal:
+orchestrator scheduler pause --project PROJECT_ID
+orchestrator scheduler resume --project PROJECT_ID
+orchestrator scheduler pause
+orchestrator scheduler resume
+orchestrator checkpoints show TASK_ID
+orchestrator scheduler retry TASK_ID --actor operator \
+  --reason 'Inspected prior artifacts and authorized one continuation' --model luna
+```
+
+As with manual execution, `--db` and `--config` go before the subcommand. All Scheduler
+views return JSON. `tick` dispatches at most the available batch capacity, waits for that
+batch to finish and records checkpoints; it does not refill slots indefinitely. Dry-run
+only computes candidates, skips and the next weighted choice. It does not acquire a lease,
+run security probes, reserve work, update fairness or write audit/projection state. It uses
+the currently persisted capacity policy. `run` is a foreground polling loop suitable for
+an external supervisor later; nothing installs/enables a service or daemonizes itself.
+
+The Scheduler selects exact TaskRevisions through SPEC-001 eligibility, then revalidates
+the same revision, plan and authorization in the Executor's reservation transaction and
+again at launch. It does not plan, approve, verify or integrate code. The configured model
+defaults to `sol`; an approved definition's `model_profile` or a bound explicit retry can
+select another configured logical profile. Unknown roles/models and all Codex profiles are
+skipped with explanatory codes. Every actual FakeAdapter process still passes SPEC-002's
+negative isolation probes. The running installation itself is excluded as
+`PROTECTED_INSTALLATION`; this service does not authorize self-development or deployment.
+
+### Deterministic fairness and capacity
+
+Project priorities already range from 0 to 100. Values 0..33, 34..66 and 67..100 map to
+the configured low/normal/high `weights` (default `[1, 2, 3]`, each in 1..8). Smooth weighted
+round-robin adds each currently selectable project's weight to its persistent credit,
+chooses the highest credit and subtracts the sum of participating weights from the winner.
+Credit ties break by Project ID. Within a project, stable Task creation time and Task ID
+choose the task; no task-priority schema or scoring engine is added. For IDs `a` and `b`
+with weights 1 and 3, the known sequence is `b, a, b, b`, repeating while both have work.
+Changing the eligible set or available project capacity changes the participating weights.
+
+Credits survive restarts. Ineligible/capacity-blocked projects gain no new credit; existing
+credit stays frozen. Explicit Scheduler pause resets the affected credit to zero. Weights
+bias dispatch opportunities over released slots, not every individual two-slot snapshot.
+There is no random selection, preemption or LLM scheduling call.
+
+Capacity is derived from existing `created`/`reserved`/`running` Executions, including manual
+ones. The Executor checks durable global/project limits in the same SQLite transaction
+that reserves a task. Scheduler claims bind to that exact reservation, rather than creating
+a second execution or maintaining a second authoritative slot counter. The existing active
+task/workspace uniqueness constraints still apply. Limits remain persisted after the
+Scheduler stops, so a concurrent manual `run` cannot oversubscribe the published policy.
+
+One owner holds an OS file lock beside the database plus a durable owner ID, process-start
+identity, expiry and heartbeat. The state directory must be operator-owned and not group/world
+writable. A second `run`/`tick` fails with `SCHEDULER_BUSY`, even if the recorded lease expired
+while the first owner still holds its lock. A replacement first reconciles claims and
+Executions; lease expiry or a stale PID alone never authorizes another writer.
+
+### Holds, checkpoints and deliberate retry
+
+Provider success leaves Task status `pending` and creates an `awaiting_review` hold.
+Failures, interruption, uncertain outcomes and incomplete evidence create
+`requires_manual_retry`. Terminal executions awaiting observation are also excluded, so a
+crash before the Scheduler acknowledges completion cannot cause replay. Repeated ticks do
+not rerun held work. Dependencies remain blocked until the prerequisite is actually `done`
+through the existing authorized administrative path or future SPEC-004 verification.
+
+At first non-dry Scheduler activation, terminal manual executions are observed too. From
+then on, manual runs also respect inspection holds and unobserved terminal history. Use
+`scheduler retry` to inspect/reconcile history and authorize one additional attempt; it
+requires a nonempty actor/reason, current eligibility, no active writer and valid current
+workspace/repository state. It grants no new plan approval or sandbox privileges. The retry
+binds to exact revision/authorization/model IDs and is consumed atomically by one reservation.
+If approval changes before consumption, it reports `RETRY_AUTHORIZATION_CHANGED`; another
+explicit retry against the current approval supersedes that stale request with an audit event.
+
+Checkpoints are append-only, numbered per Task, tied to an exact TaskRevision/Execution,
+and unique per Execution. They contain bounded **unverified** agent summaries, pending work,
+blockers/next action, process outcome, workspace/commit observations and validated artifact
+references. Up to 64 changed paths are shown, with a truncation flag; the full evidence
+remains in the referenced artifact. Missing/tampered artifacts produce an inspection hold,
+not verified progress. A fallback workspace observation is labeled as checkpoint-collection
+state, not the execution's final state. SQLite holds this metadata, not full logs or chats.
+
+An explicit retry may select a different configured model, for example `--model luna` when
+that profile maps to FakeAdapter. The request includes the latest checkpoint for the same
+TaskRevision, provenance, current plan/decision data and validated workspace/commit state.
+Prior summaries stay labeled untrusted and cannot grant permissions or replace instructions.
+The continuity JSON is stored as a controlled artifact and checksummed in the effective
+request. The same package is used if a bound retry is consumed by an explicit manual `run`
+with the selected model. No native Codex session resume, retrieval or autonomous delegation
+is implemented.
+
+### Restart, stop and diagnostics
+
+Trusted worker processes call `ExecutionService.execute_reserved` and use the existing
+SPEC-002 supervisor and sole agent launcher. Their process identities commit before a
+launch-token release. Worker diagnostics live at `artifact_root/.scheduler/EXECUTION_ID.log`;
+the claim view exposes that stable reference. The agent never receives this control-plane
+environment or database access.
+
+SIGINT/SIGTERM stops future dispatch and releases Scheduler ownership. Already running
+independent Executor supervisors continue; inspect or cancel them with `execution cancel`.
+On restart, proven live supervisors retain their reservations/slots. Abandoned unlaunched
+claims become interrupted rather than being replayed. If a supervisor died, SPEC-002 safely
+stops its identity-checked sandbox child and preserves uncertain artifacts/worktree state.
+Reconciliation and checkpoint acknowledgement are idempotent. An interrupted or successful
+but unverified attempt always requires operator review before continuation.
+
+Scheduler pause applies only to future automatic dispatch; active executions continue.
+Project domain status remains a separate SPEC-001 eligibility rule. Security revocation,
+plan supersession removing authority, or task cancellation requests controlled cancellation
+through the existing Executor policy. Open Decisions block linked work without stopping
+unrelated projects. No Scheduler code edits worktree files or integrates changes.
+
+`scheduler status` shows owner/heartbeat/last tick, global and per-project active usage,
+claims/worker identities, active holds, persisted fairness/pause/backoff state and latest
+skipped reason codes. Skip projections are diagnostic, not a second eligibility source;
+changes are audited. Worker launch failure releases capacity conservatively, holds the
+task and applies a short project backoff. Other eligible projects can continue. Evidence
+collection errors also release terminal slots and remain explicit in checkpoints.
+
+Mandatory tests remain offline with temporary repositories, databases and artifacts.
+SPEC-003 AT-13 has **not** been run: unattended live dispatch remains unavailable until
+SPEC-002's live boundary and an explicitly authorized disposable-repository smoke test pass.
+
 ## Proposed next increments
 
 1. Approved provider authentication/network boundary and opt-in live Codex smoke test.
-2. SPEC-003 Scheduler and checkpoints.
-3. SPEC-004 verification and Git integration.
+2. SPEC-004 verification and Git integration.

@@ -19,6 +19,46 @@ class ModelProfile:
 
 
 @dataclass(frozen=True)
+class SchedulerConfig:
+    global_concurrency: int = 2
+    per_project_concurrency: int = 2
+    interval_seconds: float = 2
+    lease_seconds: float = 15
+    claim_seconds: float = 30
+    backoff_seconds: float = 3
+    model_profile: str = 'sol'
+    weights: tuple[int, int, int] = (1, 2, 3)
+
+    def validate(self) -> None:
+        for value in (self.global_concurrency, self.per_project_concurrency):
+            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 32:
+                raise ValidationError('Concurrency limits must be integers in 1..32')
+        for value in (self.interval_seconds, self.lease_seconds, self.claim_seconds, self.backoff_seconds):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 < value <= 86400:
+                raise ValidationError('Scheduler intervals must be finite and in (0, 86400]')
+        if self.lease_seconds < self.interval_seconds * 2:
+            raise ValidationError('Lease duration must be at least twice the polling interval')
+        if self.model_profile not in ('luna', 'sol', 'astra'):
+            raise ValidationError('Unknown default scheduler model profile')
+        if len(self.weights) != 3 or any(isinstance(w, bool) or not isinstance(w, int) or not 1 <= w <= 8 for w in self.weights):
+            raise ValidationError('weights must contain three integers in 1..8')
+
+    @classmethod
+    def load(cls, path: Path) -> SchedulerConfig:
+        ExecutorConfig.load(path)  # Reuse operator-owned configuration checks.
+        with path.expanduser().open('rb') as file:
+            settings = tomllib.load(file).get('scheduler', {})
+        if not isinstance(settings, dict):
+            raise ValidationError('scheduler must be a TOML table')
+        try:
+            result = cls(**{**settings, 'weights': tuple(settings.get('weights', (1, 2, 3)))})
+        except TypeError as exc:
+            raise ValidationError(f'Invalid scheduler configuration: {exc}') from exc
+        result.validate()
+        return result
+
+
+@dataclass(frozen=True)
 class ExecutorConfig:
     repository_root: Path
     workspace_root: Path

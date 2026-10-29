@@ -26,3 +26,15 @@ verified = false
 provider = "codex"
 model_id = "REPLACE_WITH_OPERATOR_VERIFIED_CODEX_MODEL_ID"
 verified = false
+
+# SPEC-003: foreground scheduling, offline/fake only while the live gate is closed.
+[scheduler]
+global_concurrency = 2
+per_project_concurrency = 2
+interval_seconds = 2
+lease_seconds = 15
+claim_seconds = 30
+backoff_seconds = 3
+model_profile = "sol"
+# Project priorities 0..33 / 34..66 / 67..100, respectively.
+weights = [1, 2, 3]

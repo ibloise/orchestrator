@@ -42,6 +42,7 @@ class ExecutionRequest:
     sandbox_profile: str
     deadline: str
     input_files: tuple[tuple[str, str], ...] = ()
+    continuity: dict | None = None
 
 
 @dataclass(frozen=True)
