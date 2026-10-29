@@ -1,7 +1,9 @@
 import sqlite3
+
 import pytest
-from orchestrator.store import Store
+
 from orchestrator.cli import main
+from orchestrator.store import Store
 
 
 def test_project_objective_and_audit_are_atomic(tmp_path):

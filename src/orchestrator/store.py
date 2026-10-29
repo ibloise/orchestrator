@@ -6,11 +6,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
 from uuid import uuid4
+
+from .migrations import migrate
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -115,7 +117,7 @@ CREATE INDEX IF NOT EXISTS ix_events_created ON events(created_at);
 
 
 def now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def new_id(prefix: str) -> str:
@@ -123,20 +125,25 @@ def new_id(prefix: str) -> str:
 
 
 class Store:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path) -> None:
         self.path = Path(path).expanduser().resolve()
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with sqlite3.connect(self.path, timeout=15) as db:
+        db = sqlite3.connect(self.path, timeout=15)
+        try:
             db.execute("PRAGMA foreign_keys=ON")
             db.execute("PRAGMA busy_timeout=15000")
-            yield db
+            with db:
+                db.execute("BEGIN IMMEDIATE")
+                yield db
+        finally:
+            db.close()
 
     def initialize(self) -> None:
         with self.transaction() as db:
-            db.executescript(SCHEMA)
+            migrate(db, SCHEMA)
         self.path.chmod(0o600)
 
     @staticmethod
@@ -175,6 +182,14 @@ class Store:
     def events(self, limit: int = 20) -> list[tuple]:
         with self.transaction() as db:
             return db.execute("SELECT id,created_at,kind,subject_id FROM events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+    def event_records(self, limit: int = 20) -> list[dict]:
+        with self.transaction() as db:
+            db.row_factory = sqlite3.Row
+            records = [dict(row) for row in db.execute('SELECT * FROM events ORDER BY id DESC LIMIT ?', (limit,))]
+            for record in records:
+                record['data'] = json.loads(record.pop('data_json'))
+            return records
 
     def status(self) -> dict:
         with self.transaction() as db:

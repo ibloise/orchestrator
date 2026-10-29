@@ -1,9 +1,9 @@
 # SPEC-001 — Domain Core and Work Authorization
 
-**Project:** Homeserver Orchestrator  
-**Status:** PENDING HUMAN REVIEW  
-**Target:** v0.1.x (increment on existing bootstrap)  
-**Dependencies:** D1–D9 architectural decisions and repository `AGENTS.md`  
+**Project:** Homeserver Orchestrator\
+**Status:** READY\
+**Target:** v0.1.x (increment on existing bootstrap)\
+**Dependencies:** D1–D9 architectural decisions and repository `AGENTS.md`\
 **Scope:** Control plane only; no agent execution
 
 ## 1. Purpose
@@ -144,4 +144,4 @@ Prefer minimal modules that arise naturally (for example `domain.py`, `services.
 
 ## 10. Human review points
 
-This SPEC is **PENDING HUMAN REVIEW**. In particular, validate: (1) one logical Plan per Objective for the MVP; (2) manual administrative completion for dependency tests; (3) eligibility against only the effective approved revision. Once approved, Codex can implement it as one increment.
+This SPEC is **READY**, approved by the operator for implementation. The approved review points are: (1) one logical Plan per Objective for the MVP; (2) manual administrative completion for dependency tests; (3) eligibility against only the effective approved revision.
