@@ -1,0 +1,28 @@
+# Copy outside the repository to ~/.config/orchestrator/config.toml; chmod 600.
+# Absolute canonical paths; the three roots and the state DB must not overlap.
+[executor]
+repository_root = "/absolute/path/to/trusted-repositories"
+workspace_root = "/absolute/path/to/managed-worktrees"
+artifact_root = "/absolute/path/to/execution-artifacts"
+timeout_seconds = 300
+cancel_grace_seconds = 1
+max_log_bytes = 8388608
+codex_binary = "/absolute/path/to/codex"
+
+# The end-to-end offline demonstration uses the fake provider under the real sandbox.
+[models.sol]
+provider = "fake"
+model_id = "deterministic-fake-v1"
+verified = true
+
+# Placeholders only. Discover and verify actual supported model IDs on your server.
+# The live adapter is gated off regardless of these settings.
+[models.luna]
+provider = "codex"
+model_id = "REPLACE_WITH_OPERATOR_VERIFIED_CODEX_MODEL_ID"
+verified = false
+
+[models.astra]
+provider = "codex"
+model_id = "REPLACE_WITH_OPERATOR_VERIFIED_CODEX_MODEL_ID"
+verified = false

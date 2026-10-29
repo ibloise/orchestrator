@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "homeserver-orchestrator"
-version = "0.1.0a0"
+version = "0.2.0a0"
 description = "Supervised multi-project autonomous development orchestrator"
 requires-python = ">=3.12"
 dependencies = []

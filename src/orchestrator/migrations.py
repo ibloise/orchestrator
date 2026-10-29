@@ -35,7 +35,48 @@ CREATE TABLE manual_completions (
 );
 """
 
-MIGRATIONS = (MIGRATION_1,)
+MIGRATION_2 = """
+CREATE TABLE workspaces (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),
+    repository TEXT NOT NULL,
+    path TEXT NOT NULL UNIQUE,
+    branch TEXT NOT NULL,
+    base_commit TEXT NOT NULL,
+    git_marker TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+ALTER TABLE executions ADD COLUMN task_id TEXT REFERENCES tasks(id);
+ALTER TABLE executions ADD COLUMN plan_revision_id TEXT REFERENCES plan_revisions(id);
+ALTER TABLE executions ADD COLUMN workspace_id TEXT REFERENCES workspaces(id);
+ALTER TABLE executions ADD COLUMN provider TEXT;
+ALTER TABLE executions ADD COLUMN model_id TEXT;
+ALTER TABLE executions ADD COLUMN actor TEXT;
+ALTER TABLE executions ADD COLUMN started_at TEXT;
+ALTER TABLE executions ADD COLUMN deadline TEXT;
+ALTER TABLE executions ADD COLUMN pid INTEGER;
+ALTER TABLE executions ADD COLUMN pid_identity TEXT;
+ALTER TABLE executions ADD COLUMN supervisor_pid INTEGER;
+ALTER TABLE executions ADD COLUMN supervisor_identity TEXT;
+ALTER TABLE executions ADD COLUMN exit_code INTEGER;
+ALTER TABLE executions ADD COLUMN outcome_reason TEXT;
+ALTER TABLE executions ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE executions ADD COLUMN base_commit TEXT;
+ALTER TABLE executions ADD COLUMN head_commit TEXT;
+ALTER TABLE executions ADD COLUMN artifacts_json TEXT;
+ALTER TABLE executions ADD COLUMN request_sha256 TEXT;
+ALTER TABLE executions ADD COLUMN result_json TEXT;
+ALTER TABLE executions ADD COLUMN sandbox_profile TEXT;
+ALTER TABLE executions ADD COLUMN provider_version TEXT;
+CREATE UNIQUE INDEX ux_execution_task_active ON executions(task_id)
+    WHERE status IN ('created','reserved','running');
+CREATE UNIQUE INDEX ux_execution_workspace_active ON executions(workspace_id)
+    WHERE status IN ('created','reserved','running');
+UPDATE executions SET task_id=(SELECT task_id FROM task_revisions WHERE id=task_revision_id),
+    plan_revision_id=(SELECT plan_revision_id FROM authorizations WHERE id=authorization_id);
+"""
+
+MIGRATIONS = (MIGRATION_1, MIGRATION_2)
 
 
 def statements(db: sqlite3.Connection, script: str) -> None:

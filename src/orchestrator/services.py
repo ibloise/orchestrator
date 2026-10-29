@@ -354,6 +354,11 @@ class ControlPlane:
             raise ValidationError('Manual completion requires nonempty evidence')
         with self.transaction() as db:
             result = self._eligibility(db, task_revision_id)
+            active = db.execute("SELECT 1 FROM executions WHERE task_revision_id IN "
+                                "(SELECT id FROM task_revisions WHERE task_id=?) "
+                                "AND status IN ('created','reserved','running')", (result['task_id'],)).fetchone()
+            if active:
+                raise ValidationError('Manual completion blocked: ACTIVE_EXECUTION')
             if not result['eligible']:
                 raise ValidationError('Manual completion blocked: ' + ', '.join(r['code'] for r in result['reasons']))
             db.execute("UPDATE tasks SET status='done' WHERE id=?", (result['task_id'],))

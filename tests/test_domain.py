@@ -52,7 +52,7 @@ def test_at01_bootstrap_migration_preserves_data(tmp_path):
     assert store.list_projects()[0][0] == 'p'
     assert store.events()[0][2] == 'legacy'
     with store.transaction() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 1
+        assert db.execute('PRAGMA user_version').fetchone()[0] == len(migrations.MIGRATIONS)
         assert db.execute('PRAGMA foreign_keys').fetchone()[0] == 1
     assert path.stat().st_mode & 0o777 == 0o600
 

@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 
 from .domain import NotFoundError
+from .execution_cli import COMMANDS, add_commands, dispatch
 from .services import ControlPlane
 from .store import Store
 
@@ -20,6 +21,9 @@ def default_db() -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog='orchestrator')
     parser.add_argument('--db', type=Path, default=default_db(), help='Control-plane SQLite database')
+    parser.add_argument('--config', type=Path,
+                        default=Path.home() / '.config' / 'orchestrator' / 'config.toml',
+                        help='Operator-owned executor TOML config (required only for SPEC-002 commands)')
     cmd = parser.add_subparsers(dest='command', required=True)
     cmd.add_parser('init')
     cmd.add_parser('status')
@@ -43,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     events.add_argument('--limit', type=int, default=20)
     events.add_argument('--json', action='store_true', help='Include full audit payloads as JSON')
     add_domain_commands(cmd)
+    add_commands(cmd)
     args = parser.parse_args(argv)
     store = Store(args.db)
     if args.command != 'init' and not store.path.is_file():
@@ -78,11 +83,13 @@ def main(argv: list[str] | None = None) -> int:
                 for row in store.events(args.limit):
                     print('\t'.join(str(x) for x in row))
         else:
-            result = domain_command(ControlPlane(store), args)
+            result = dispatch(store, args.config, args) if args.command in COMMANDS else domain_command(ControlPlane(store), args)
             if isinstance(result, str):
                 print(result)
             else:
                 print(json.dumps(result if result is not None else {'ok': True}, sort_keys=True))
+            if args.command == 'run' and result['status'] != 'succeeded':
+                return 1
     except NotFoundError as e:
         parser.error(f'Not found: {e}')
     except sqlite3.IntegrityError as e:
@@ -93,6 +100,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f'Validation failed: {e}')
     except sqlite3.OperationalError as e:
         parser.error(f'Database operation failed (run init to apply migrations): {e}')
+    except OSError as e:
+        parser.error(f'Filesystem/configuration operation failed: {e}')
+    except KeyboardInterrupt:
+        parser.exit(130, 'Execution interrupted; inspect executions and logs before retrying\n')
     return 0
 
 
