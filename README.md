@@ -32,6 +32,16 @@ are available, but `run` refuses every Codex profile. There is no supported swit
 this gate. Automated verification and Git integration remain future work.
 Do not expose the database or executor privileges to LLM processes.
 
+## Development and distribution
+
+The public GitHub repository is the canonical source. A development checkout and its virtual
+environment are for development and testing; a future production installation must use a
+separately installed, versioned release with isolated operational resources. See
+[ADR-001](docs/ADR-001-development-production-isolation.md). Deployment is not implemented.
+
+GitHub Actions runs tests, Ruff and a package build on pushes to main and pull requests
+against main. The project is distributed under the [MIT License](LICENSE).
+
 ## Setup
 
 ```bash

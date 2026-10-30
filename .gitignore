@@ -1,27 +1,47 @@
-cat > .gitignore <<'EOF'
-# Python
+# Python and environments
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+venv/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-.coverage
-htmlcov/
 
-# Local state
+# Test and build output
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+build/
+dist/
+
+# Local operational state and secrets
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
+*.sqlite-wal
+*.sqlite-shm
 *.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
 .env
 .env.*
 !.env.example
+*.pem
+*.key
 
-# IDE
+# Local execution output
+*.log
+/artifacts/
+/logs/
+
+# Editor and operating system files
 .vscode/
 .idea/
-
-# OS
+*.swp
+*.swo
+*~
 .DS_Store
-EOF
+Thumbs.db
