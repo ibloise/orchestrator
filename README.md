@@ -163,6 +163,17 @@ the Scheduler; no external API is implemented.
 The offline executor requires Linux x86-64, a non-root operator, Landlock ABI >= 6,
 seccomp filters, Python 3.12+ and `/usr/bin/git`. It fails closed on other platforms or
 if the actual sandbox probe fails. No additional Python runtime dependencies are used.
+The sandbox must also be able to execute the resolved Python interpreter and read its
+runtime under the profile's permitted system paths. In particular, interpreters under
+`/opt/hostedtoolcache` are not accessible with the current policy.
+
+Tests marked `sandbox` exercise real sandboxed launches and security integration; run
+`pytest -ra -m sandbox` on a compatible host. Unmarked tests run with
+`pytest -ra -m "not sandbox"`, including fail-closed probe tests. Marked tests skip only
+when the platform or required Landlock ABI is unavailable; executable access,
+unexpected initialization, and negative-probe failures fail the tests. CI runs the full
+suite and reports skips, using Ubuntu's `/usr/bin/python3.12` in a virtual environment
+so its interpreter is accessible to the sandbox. The CI job has a 15-minute timeout.
 
 Copy [config.example.toml](config.example.toml) to
 `~/.config/orchestrator/config.toml` and replace its absolute directory placeholders.
