@@ -26,7 +26,7 @@ docker compose -f infra/agent-network/compose.yml ps
 docker network inspect orchestrator-agent-internal orchestrator-agent-egress
 ```
 
-Inspect `Internal`, subnet, attached containers and proxy addresses; confirm that the agent is absent from egress. No port is published. The proxy uses an image digest, a read-only config mount, resource limits and `unless-stopped`; no socket, secret, host networking or privileged mode is configured. The internal listener is `172.30.240.2:3128`; proxy clients can use `http://squid:3128`. Squid logs live inside its container at `/var/log/squid/` and are lost when it is recreated unless exported. They can include sensitive URLs; restrict access and arrange retention and rotation before operational use.
+Inspect `Internal`, subnet, attached containers and proxy addresses; confirm that the agent is absent from egress. No port is published. The proxy uses an image digest, a read-only config mount, resource limits and `unless-stopped`; no socket, secret, host networking or privileged mode is configured. The internal listener is `172.30.240.2:3128`; proxy clients can use `http://squid:3128`. The 256 MiB container limit must cover the Squid process, its 32 MB memory cache and other internal structures; `cache_mem` is not a limit on total Squid memory. Squid logs live inside its container at `/var/log/squid/` and are lost when it is recreated unless exported. They can include sensitive URLs; restrict access and arrange retention and rotation before operational use.
 
 To stop or remove this deployment:
 
@@ -56,19 +56,22 @@ A successful parse is not proof that the listener starts or that the policy is s
 
 Run only on a disposable deployment after checking its networks and images. These commands create short-lived test containers, not real agents. Record output and failures; a timeout, DNS failure or connection error is not an HTTP 403. Do not treat any single failure as a complete security proof.
 
-1. Check the internal route, Docker DNS, proxy port and direct access. Expected: no default route, `squid` resolves, the port connects, and both direct requests fail with no route or a connection failure. `192.168.0.1` is the historically tested LAN address; substitute a known non-sensitive LAN address if different.
+1. Select a non-sensitive IPv4 RFC1918 address under your control as the private test destination. Do not use a real service containing secrets. Set it in the shell before running the following checks. Inspect the route and DNS output separately: there must be no default route, and `squid` must resolve. The curl probe should connect to the proxy and return an HTTP response; it deliberately requests a denied private destination, so Squid HTTP 403 confirms both the listener and rejection. Curl exit 5 indicates proxy DNS resolution failed; exit 7 indicates connection failed; a 403 is an HTTP rejection, while other responses require investigation. A timeout or another curl error is not a successful connectivity check. Direct requests must fail with no route or a connection failure.
 
 ```bash
-docker run --rm --network orchestrator-agent-internal alpine:3.22 sh -c 'ip route; nslookup squid; nc -z -w 5 squid 3128'
+TEST_PRIVATE_IP="${TEST_PRIVATE_IP:?Set a private test destination}"
+docker run --rm --network orchestrator-agent-internal alpine:3.22 ip route
+docker run --rm --network orchestrator-agent-internal alpine:3.22 nslookup squid
+docker run --rm --network orchestrator-agent-internal curlimages/curl:latest -v --connect-timeout 5 --max-time 10 --proxy http://squid:3128 --noproxy '' "http://${TEST_PRIVATE_IP}/"
 docker run --rm --network orchestrator-agent-internal curlimages/curl:latest --noproxy '*' --connect-timeout 5 -k https://1.1.1.1/
-docker run --rm --network orchestrator-agent-internal curlimages/curl:latest --noproxy '*' --connect-timeout 5 -k https://192.168.0.1/
+docker run --rm --network orchestrator-agent-internal curlimages/curl:latest --noproxy '*' --connect-timeout 5 -k "https://${TEST_PRIVATE_IP}/"
 ```
 
 2. Check proxy behavior. The GitHub request should return a successful HTTPS response with certificate verification. Each forbidden request must return Squid HTTP 403, including the CONNECT tunnel response; use the verbose output to distinguish it from an upstream or network error.
 
 ```bash
 docker run --rm --network orchestrator-agent-internal curlimages/curl:latest -v --max-time 15 --proxy http://squid:3128 --noproxy '' -o /dev/null https://github.com/
-docker run --rm --network orchestrator-agent-internal curlimages/curl:latest -v --max-time 10 --proxy http://squid:3128 --noproxy '' https://192.168.0.1/
+docker run --rm --network orchestrator-agent-internal curlimages/curl:latest -v --max-time 10 --proxy http://squid:3128 --noproxy '' "https://${TEST_PRIVATE_IP}/"
 docker run --rm --network orchestrator-agent-internal curlimages/curl:latest -v --max-time 10 --proxy http://squid:3128 --noproxy '' http://10.0.0.1/
 docker run --rm --network orchestrator-agent-internal curlimages/curl:latest -v --max-time 10 --proxy http://squid:3128 --noproxy '' http://172.16.0.1/
 docker run --rm --network orchestrator-agent-internal curlimages/curl:latest -v --max-time 10 --proxy http://squid:3128 --noproxy '' 'http://[::1]/'
@@ -101,6 +104,6 @@ Squid allows only clients in the fixed internal subnet, HTTP ports 80/443 and CO
 
 ## Historical validation record — October 31, 2026
 
-The operator tested a separate manual prototype as `codexdev` on the rootless Docker context using slirp4netns with host loopback disabled. The default bridge had a default route and ultimately reached Google and GitHub over HTTPS; one initial `example.com` TLS failure and BusyBox HTTP header error did not establish a general fault. An internal bridge had no default route and direct requests to `1.1.1.1` and `192.168.0.1` failed with network unreachable. Two containers resolved each other and exchanged HTTP over `nc`; Alpine lacked the `httpd` applet.
+A rootless Docker operator tested a separate manual prototype using slirp4netns with host loopback disabled. The default bridge had a default route and ultimately reached Google and GitHub over HTTPS; one initial `example.com` TLS failure and BusyBox HTTP header error did not establish a general fault. An internal bridge had no default route and direct requests to a public IP and an RFC1918 destination failed with network unreachable. Two containers resolved each other and exchanged HTTP over `nc`; Alpine lacked the `httpd` applet.
 
-The manually attached two-network `ubuntu/squid:latest` prototype reported Squid 6.13. After switching worker logs to files and removing the redundant manager ACL, explicit curl CONNECT to GitHub returned 200 with verified TLS; CONNECT to `192.168.0.1:443` returned Squid 403. BusyBox wget had attempted direct connections instead of using the proxy. These observations concern that prototype, not every destination, bypass, host or this Compose deployment. The version-controlled configuration has separately passed Compose rendering and Squid parse on October 31, 2026; its deployment and connectivity acceptance procedure have not been run.
+The manually attached two-network `ubuntu/squid:latest` prototype reported Squid 6.13. After switching worker logs to files and removing the redundant manager ACL, explicit curl CONNECT to GitHub returned 200 with verified TLS; CONNECT to an RFC1918 destination returned Squid 403. BusyBox wget had attempted direct connections instead of using the proxy. These observations concern that prototype, not every destination, bypass, host or this Compose deployment. The version-controlled configuration has separately passed Compose rendering and Squid parse on October 31, 2026; its deployment and connectivity acceptance procedure have not been run.
