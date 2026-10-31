@@ -89,6 +89,7 @@ def scheduler(env, config=None):
     return Scheduler(env['store'], env['config'], config or env['scheduling'])
 
 
+@pytest.mark.sandbox
 def test_at02_multiproject_dispatch_and_unapproved_work(env):
     a = add_project(env, 'a')
     b = add_project(env, 'b', priority=90)
@@ -105,6 +106,7 @@ def test_at02_multiproject_dispatch_and_unapproved_work(env):
     assert service.tick()['dispatched'] == []
 
 
+@pytest.mark.sandbox
 def test_at03_dependency_waits_for_administrative_completion(env):
     project = add_project(env, 'dependency', count=2)
     first, second = project['tasks']
@@ -128,6 +130,7 @@ def test_at04_known_weighted_sequence():
     assert credits == {'a': 0, 'b': 0}
 
 
+@pytest.mark.sandbox
 def test_at04_fairness_survives_restart_and_holds_do_not_replay(env):
     a = add_project(env, 'a', priority=10, count=4)
     b = add_project(env, 'b', priority=90, count=8)
@@ -172,6 +175,7 @@ def test_at05_capacity_counts_manual_reservations_and_shared_locks(env):
             service.executor.transition(item['execution_id'], 'reserved', 'interrupted', outcome_reason='Test release')
 
 
+@pytest.mark.sandbox
 def test_at05_simultaneous_ticks_do_not_duplicate_work(env):
     add_project(env, 'a', count=2)
     barrier = threading.Barrier(2)
@@ -191,6 +195,7 @@ def test_at05_simultaneous_ticks_do_not_duplicate_work(env):
 
 
 @pytest.mark.parametrize('mode,hold', [('success', 'awaiting_review'), ('failure', 'requires_manual_retry'), ('malformed', 'requires_manual_retry')])
+@pytest.mark.sandbox
 def test_at06_terminal_dispositions_require_explicit_retry(env, mode, hold):
     project = add_project(env, 'a')
     service = scheduler(env)
@@ -252,6 +257,7 @@ def test_at08_abandoned_claim_interrupted_once_not_replayed(env):
     assert reopened.status()['slots_used'] == 0
 
 
+@pytest.mark.sandbox
 def test_at08_running_worker_survives_owner_restart(env):
     project = add_project(env, 'a')
     original = scheduler(env)
@@ -269,6 +275,7 @@ def test_at08_running_worker_survives_owner_restart(env):
     original.workers[claim['execution_id']].wait(timeout=5)
 
 
+@pytest.mark.sandbox
 def test_at08_terminal_before_acknowledgement_is_recovered(env):
     project = add_project(env, 'a')
     original = scheduler(env)
@@ -283,6 +290,7 @@ def test_at08_terminal_before_acknowledgement_is_recovered(env):
     assert reopened.checkpoints(project['tasks'][0])['latest']['execution_id'] == claim['execution_id']
 
 
+@pytest.mark.sandbox
 def test_at09_cross_model_retry_has_untrusted_checkpoint_context(env):
     project = add_project(env, 'a')
     first = scheduler(env)
@@ -304,6 +312,7 @@ def test_at09_cross_model_retry_has_untrusted_checkpoint_context(env):
     assert len(reopened.checkpoints(project['tasks'][0])['versions']) == 2
 
 
+@pytest.mark.sandbox
 def test_dry_run_is_read_only_even_for_previous_manual_results(env):
     project = add_project(env, 'a')
     executor = ExecutionService(env['store'], env['config'])
@@ -318,6 +327,7 @@ def test_dry_run_is_read_only_even_for_previous_manual_results(env):
     assert len(executor.list()) == 1
 
 
+@pytest.mark.sandbox
 def test_pause_is_scoped_and_does_not_cancel_running_work(env):
     a = add_project(env, 'a')
     b = add_project(env, 'b')
@@ -337,7 +347,8 @@ def test_pause_is_scoped_and_does_not_cancel_running_work(env):
         wait_until(lambda: service.executor.show(claim['execution_id'])['status'] not in ACTIVE)
 
 
-@pytest.mark.parametrize('failure', ['claim', 'checkpoint', 'retry'])
+@pytest.mark.parametrize('failure', ['claim', pytest.param('checkpoint', marks=pytest.mark.sandbox),
+                                     pytest.param('retry', marks=pytest.mark.sandbox)])
 def test_at11_database_atomicity(env, monkeypatch, failure):
     project = add_project(env, 'a')
     service = scheduler(env)
@@ -390,6 +401,7 @@ def test_at11_worker_launch_failure_releases_slot_and_backs_off(env, monkeypatch
         assert service.executor.show(claim['execution_id'])['status'] == 'failed'
 
 
+@pytest.mark.sandbox
 def test_at11_artifact_collection_failure_creates_inspection_hold(env):
     project = add_project(env, 'a')
     executor = ExecutionService(env['store'], env['config'])
@@ -403,6 +415,7 @@ def test_at11_artifact_collection_failure_creates_inspection_hold(env):
     assert service.status()['slots_used'] == 0
 
 
+@pytest.mark.sandbox
 def test_at12_live_gate_is_inherited_and_fake_work_continues(env):
     project = add_project(env, 'a')
     blocked = add_project(env, 'b')
@@ -470,6 +483,7 @@ backoff_seconds = 0.1
     return path
 
 
+@pytest.mark.sandbox
 def test_at10_cli_end_to_end(env, capsys):
     reference = add_project(env, 'reference', approved=False)
     config_path = write_config(env)
@@ -508,6 +522,7 @@ def test_at10_cli_end_to_end(env, capsys):
     run('scheduler', 'resume')
 
 
+@pytest.mark.sandbox
 def test_foreground_service_shutdown_and_restart_without_replay(env):
     add_project(env, 'a')
     add_project(env, 'b')
@@ -532,6 +547,7 @@ def test_foreground_service_shutdown_and_restart_without_replay(env):
                 process.communicate(timeout=5)
 
 
+@pytest.mark.sandbox
 def test_stop_leaves_independent_executor_owned_work_for_reconciliation(env, monkeypatch):
     project = add_project(env, 'a')
     service = scheduler(env)
@@ -554,6 +570,7 @@ def test_stop_leaves_independent_executor_owned_work_for_reconciliation(env, mon
     service.workers[execution['id']].wait(timeout=5)
 
 
+@pytest.mark.sandbox
 def test_revocation_stops_running_execution_through_executor_policy(env):
     project = add_project(env, 'a')
     service = scheduler(env)
@@ -589,6 +606,7 @@ def test_expired_lease_cannot_bypass_live_owner_and_claim_expiry_is_closed(env):
         assert 'EXPIRED' in record['outcome_reason']
 
 
+@pytest.mark.sandbox
 def test_retry_authorization_drift_requires_new_explicit_permission(env):
     project = add_project(env, 'a')
     service = scheduler(env)
@@ -605,6 +623,7 @@ def test_retry_authorization_drift_requires_new_explicit_permission(env):
     assert len(service.tick()['dispatched']) == 1
 
 
+@pytest.mark.sandbox
 def test_explicit_manual_retry_uses_same_continuity_contract(env):
     project = add_project(env, 'a')
     service = scheduler(env)
@@ -668,6 +687,7 @@ def test_dead_expired_owner_is_recovered_without_replaying_its_claim(env):
     assert replacement.status()['slots_used'] == 0
 
 
+@pytest.mark.sandbox
 def test_scheduler_worker_crash_retains_uncertain_checkpoint_and_stops_orphan(env):
     project = add_project(env, 'a')
     service = scheduler(env)
@@ -706,6 +726,7 @@ def test_scheduler_inherits_failed_isolation_probe_without_a_fallback(env, monke
     assert service.checkpoints(project['tasks'][0])['latest']['metadata']['next_action'] == 'requires_manual_retry'
 
 
+@pytest.mark.sandbox
 def test_scheduled_fake_execution_records_real_negative_security_probes(env):
     project = add_project(env, 'a')
     result = scheduler(env).tick()['executions'][0]

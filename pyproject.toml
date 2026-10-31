@@ -20,3 +20,4 @@ packages = ["src/orchestrator"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["sandbox: requires the real Linux Landlock/seccomp sandbox"]

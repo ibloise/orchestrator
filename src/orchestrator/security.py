@@ -205,7 +205,10 @@ def main() -> int:
         resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
         resource.setrlimit(resource.RLIMIT_CPU, (300, 300))
         restrict(workspace)
-        os.execv(sys.argv[2], sys.argv[2:])
+        try:
+            os.execv(sys.argv[2], sys.argv[2:])
+        except OSError as exc:
+            raise SecurityError(f'execv {sys.argv[2]}: errno {exc.errno} ({exc.strerror})') from exc
     except (OSError, SecurityError, ValueError) as exc:
         print(f'SANDBOX_REFUSED: {exc}', file=sys.stderr)
         return 126

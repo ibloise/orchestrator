@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -64,6 +65,7 @@ def service(env, config=None):
     return ExecutionService(env['store'], config or env['config'])
 
 
+@pytest.mark.sandbox
 def test_at02_exact_approved_request_and_artifacts(environment):
     env = environment
     executor = service(env)
@@ -126,6 +128,7 @@ def test_at03_denied_before_subprocess(environment, blocker):
     assert env['store'].event_records()[0]['kind'] == 'execution_denied'
 
 
+@pytest.mark.sandbox
 def test_revalidate_before_release_of_untrusted_process(environment):
     env = environment
 
@@ -141,6 +144,7 @@ def test_revalidate_before_release_of_untrusted_process(environment):
     assert not (env['config'].artifact_root / record['id'] / 'stage' / 'fake-change.txt').exists()
 
 
+@pytest.mark.sandbox
 def test_at04_reuse_preserves_dirty_work_and_reference(environment):
     env = environment
     executor = service(env)
@@ -169,6 +173,7 @@ def test_workspace_collision_and_metadata_tampering_refused(environment):
     assert (path / 'sentinel').read_text() == 'preserve'
 
 
+@pytest.mark.sandbox
 def test_workspace_git_marker_is_protected_from_stage(environment):
     env = environment
     executor = service(env)
@@ -186,6 +191,7 @@ def test_workspace_git_marker_is_protected_from_stage(environment):
 @pytest.mark.parametrize('mode,status,declaration', [('success', 'succeeded', 'valid'), ('failure', 'failed', 'valid'),
                                                    ('malformed', 'failed', 'invalid'), ('missing', 'failed', 'unavailable'),
                                                    ('ignore-term', 'timed_out', 'unavailable')])
+@pytest.mark.sandbox
 def test_at06_process_outcomes(environment, mode, status, declaration):
     env = environment
     config = replace(env['config'], timeout_seconds=0.2) if mode == 'ignore-term' else env['config']
@@ -200,6 +206,7 @@ def test_at06_process_outcomes(environment, mode, status, declaration):
     assert env['core'].inspect('task', env['task'])['status'] == 'pending'
 
 
+@pytest.mark.sandbox
 def test_at06_cancellation_via_durable_flag(environment):
     env = environment
     executor = service(env)
@@ -236,6 +243,7 @@ def test_at07_durable_reservation_across_connections(environment):
     assert other.show(identifier)['status'] == 'reserved'
 
 
+@pytest.mark.sandbox
 def test_at08_restart_reconciliation_never_retries(environment):
     env = environment
     executor = service(env)
@@ -266,6 +274,7 @@ def test_live_supervisor_is_not_reconciled(environment):
     assert executor.show(identifier)['status'] == 'reserved'
 
 
+@pytest.mark.sandbox
 def test_at09_real_sandbox_negative_probes(environment):
     env = environment
     root = env['root']
@@ -326,6 +335,19 @@ print(json.dumps(results))
     assert env['store'].event_records()[0]['data'] == results
 
 
+@pytest.mark.sandbox
+def test_sandbox_refuses_executable_outside_allowed_paths(tmp_path):
+    stage = tmp_path / 'stage'
+    stage.mkdir()
+    outside = tmp_path / 'python-outside-workspace'
+    shutil.copy2(PYTHON, outside)
+    result = subprocess.run(sandbox_command(stage, [str(outside), '-I', '-c', 'pass']),
+                            input='ORCHESTRATOR_LAUNCH\n', capture_output=True, text=True,
+                            timeout=10, env=clean_environment(stage), check=False)
+    assert result.returncode == 126
+    assert f'execv {outside}: errno 13' in result.stderr
+
+
 def test_sandbox_failure_is_closed_and_audited(environment, monkeypatch):
     env = environment
     monkeypatch.setattr('orchestrator.execution.probe', lambda stage: {'available': False, 'diagnostic': 'unavailable'})
@@ -346,6 +368,7 @@ def test_codex_model_gate_no_subprocess(environment):
     assert not env['config'].workspace_root.exists()
 
 
+@pytest.mark.sandbox
 def test_output_limit_and_inspect_role_fail_without_task_closure(environment):
     env = environment
     result = service(env, replace(env['config'], max_log_bytes=1024)).run(env['task'], adapter=FakeAdapter('flood'))
@@ -361,6 +384,7 @@ def test_output_limit_and_inspect_role_fail_without_task_closure(environment):
     assert env['core'].inspect('task', env['task'])['status'] == 'pending'
 
 
+@pytest.mark.sandbox
 def test_at08_reconcile_actual_orphan_identity_without_killing_other_processes(environment):
     env = environment
     executor = service(env)
@@ -426,6 +450,7 @@ def test_config_rejects_exposed_database_overlap_and_untrusted_file(environment)
         ExecutorConfig.load(config_path)
 
 
+@pytest.mark.sandbox
 def test_import_refuses_concurrent_user_edits_and_symlink_escape(environment):
     env = environment
     executor = service(env)
@@ -447,6 +472,7 @@ def test_import_refuses_concurrent_user_edits_and_symlink_escape(environment):
     assert not (path / 'escape').exists()
 
 
+@pytest.mark.sandbox
 def test_doctor_negative_probes_and_live_gate(environment):
     env = environment
     config = replace(env['config'], codex_binary='/nonexistent/codex')
@@ -458,6 +484,7 @@ def test_doctor_negative_probes_and_live_gate(environment):
     assert diagnostics['codex']['installed'] is False
 
 
+@pytest.mark.sandbox
 def test_at05_codex_command_uses_arguments_and_no_hardcoded_model(environment):
     env = environment
     adapter = FakeAdapter()
@@ -491,6 +518,7 @@ verified = true
     return path
 
 
+@pytest.mark.sandbox
 def test_at10_cli_end_to_end(environment, capsys):
     env = environment
     config_path = write_config(env)
@@ -562,6 +590,7 @@ def test_at11_state_events_are_atomic(environment, monkeypatch, transition):
         assert record['cancel_requested'] == 0
 
 
+@pytest.mark.sandbox
 def test_at11_artifact_failure_is_not_silent_success(environment, monkeypatch):
     env = environment
     from orchestrator.execution import artifact_json
