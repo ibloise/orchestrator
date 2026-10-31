@@ -11,6 +11,11 @@ execution remains disabled** pending a provider authentication/network boundary 
 is approved for implementation. Its deterministic Scheduler and checkpoints are implemented
 for **FakeAdapter only**, with a read-only dry-run. The live gate remains closed.
 
+The proposed live runtime uses rootless Docker and a controlled Squid proxy; see
+[ADR-002](docs/ADR-002-agent-network-isolation.md), the [SPEC-002 addendum](specs/SPEC-002-ADDENDUM.md),
+[network operations](docs/operations/agent-network.md), and [infrastructure configuration](infra/agent-network/compose.yml).
+Provider credential isolation and live security acceptance remain unresolved; this infrastructure does not enable Codex.
+
 ## What works
 - Python package with administrative CLI.
 - SQLite schema for projects, objectives, versioned plans/tasks, authorizations, executions, decisions, events and notification outbox.
